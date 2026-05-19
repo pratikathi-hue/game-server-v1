@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P P Online - Admin Panel</title>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #eef2f3; text-align: center; padding: 10px; margin: 0; }
+        .box { background: white; padding: 15px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; max-width: 600px; margin: auto; }
+        .card { background: #fff; padding: 10px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: 0.2s; position: relative; }
+        .card.selected { border-color: #d32f2f; background: #ffebee; transform: scale(1.05); box-shadow: 0 0 10px rgba(211,47,47,0.3); }
+        .total-box { color: #d32f2f; font-weight: bold; font-size: 14px; background: #ffeb3b; padding: 2px; border-radius: 4px; margin-top: 5px; }
+        .timer { font-size: 40px; color: red; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background: #2e7d32; color: white; }
+        input { padding: 8px; margin: 5px; border-radius: 5px; border: 1px solid #ccc; }
+        button { padding: 8px 12px; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-add { background: #2e7d32; }
+        .btn-sub { background: #d32f2f; }
+        .btn-win { background: #000; width: 45%; margin: 5px; padding: 12px; }
+        .btn-jackpot { background: #ff9800; width: 45%; margin: 5px; padding: 12px; border: 2px solid #e65100; }
+        .btn-status-open { background: #2e7d32; padding: 10px 20px; font-size: 18px; }
+        .btn-status-closed { background: #d32f2f; padding: 10px 20px; font-size: 18px; }
+        .btn-auto-on { background: #673ab7; margin-top: 10px; }
+        .btn-auto-off { background: #9e9e9e; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="box">
+        <h2 style="color:#2e7d32; margin:0;">P P Online - Admin</h2>
+        
+        <div style="margin: 15px 0; display: flex; justify-content: center; gap: 10px;">
+            <div>
+                <p style="margin-bottom: 5px; font-weight: bold;">બેટિંગ સ્ટેટસ:</p>
+                <button id="btn-toggle-bet" onclick="toggleBetting()" class="btn-status-open">LOADING...</button>
+            </div>
+            <div>
+                <p style="margin-bottom: 5px; font-weight: bold;">ઓટો મોડ (Low Bet):</p>
+                <button id="btn-auto-mode" onclick="toggleAutoMode()" class="btn-auto-off">ઓટો મોડ બંધ છે</button>
+            </div>
+        </div>
+
+        <div class="timer" id="timer-val">05:00</div>
+        
+        <h3>લાઇવ ટોટલ બેટ</h3>
+        <div class="grid" id="admin-grid"></div>
+        <p>સિલેક્ટ કરેલ: <b id="sel-winner" style="color:red; font-size:18px;">NONE</b></p>
+        <button class="btn-win" onclick="sendWinner('normal')">WINNER (11 na 100)</button>
+        <button class="btn-jackpot" onclick="sendWinner('jackpot')">JACKPOT (11 na 200)</button>
+    </div>
+
+    <div class="box" style="border: 2px solid #2e7d32;">
+        <h3>➕ નવી ID બનાવો</h3>
+        <input type="text" id="new-uid" placeholder="User ID">
+        <input type="text" id="new-pass" placeholder="Password">
+        <input type="number" id="new-bal" placeholder="Balance">
+        <button class="btn-add" onclick="createUser()">ID બનાવો</button>
+    </div>
+
+    <div class="box">
+        <h3>યુઝર મેનેજમેન્ટ (+/-)</h3>
+        <table>
+            <thead><tr><th>ID</th><th>Pass</th><th>Balance</th><th>Action</th></tr></thead>
+            <tbody id="user-table"></tbody>
+        </table>
+    </div>
+
+<script>
+    const firebaseConfig = { 
+        apiKey: "AIzaSyDKXelhAJi2IJi05p_Mxffi", 
+        authDomain: "honest1game-5c06f.firebaseapp.com", 
+        projectId: "honest1game-5c06f", 
+        databaseURL: "https://honest1game-5c06f-default-rtdb.firebaseio.com" 
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const figures = ["SHREE YANTRA", "VASHIKARAN YANTRA", "SUDARSHAN YANTRA", "VASTU YANTRA", "PLANET YANTRA", "LOVE YANTRA", "TARA YANTRA", "GRAH YANTRA", "MATSHYA YANTRA", "MEDITATION YANTRA"];
+    let selectedWinner = "";
+    let currentBetStatus = true;
+    let isAutoMode = false;
+    let currentBetsData = {};
+    let currentRemainingSeconds = 0;
+    let winnerTimerRef = null;
+    let isResetting = false; // ડબલ રિસેટ રોકવા માટે
+
+    function formatTime(seconds) {
+        let mins = Math.floor(seconds / 60);
+        let secs = seconds % 60;
+        return (mins < 10 ? "0" + mins : mins) + ":" + (secs < 10 ? "0" + secs : secs);
+    }
+
+    function syncMobileTimer() {
+        let now = new Date();
+        let seconds = now.getSeconds();
+        let minutes = now.getMinutes();
+        let totalPassedSeconds = (minutes % 5) * 60 + seconds;
+        currentRemainingSeconds = 300 - totalPassedSeconds - 1; 
+
+        if (currentRemainingSeconds < 0) currentRemainingSeconds = 0;
+
+        db.ref('timer').set(currentRemainingSeconds);
+        document.getElementById('timer-val').innerText = formatTime(currentRemainingSeconds);
+
+        // બેટિંગ બંધ કરો
+        if (currentRemainingSeconds === 10) {
+            db.ref('isBettingOpen').set(false);
+        }
+
+        // ઓટો મોડ
+        if (currentRemainingSeconds === 12 && isAutoMode && !selectedWinner) {
+            autoSelectLowestBet();
+        }
+
+        // --- નવું રિસેટ લોજિક ---
+        if (currentRemainingSeconds === 0 && !isResetting) {
+            isResetting = true;
+            setTimeout(() => {
+                // ૧. Firebase ડેટા ક્લીન
+                db.ref('totalBets').remove();
+                db.ref('users').once('value', s => { s.forEach(u => u.ref.child('currentBets').remove()); });
+                db.ref('isBettingOpen').set(true); 
+                db.ref('lastWinner').set(""); 
+
+                // ૨. એડમિન UI રિફ્રેશ
+                selectedWinner = "";
+                document.getElementById('sel-winner').innerText = "NONE";
+                
+                // કાર્ડ્સ ક્લીન કરો
+                figures.forEach(f => {
+                    const card = document.getElementById("card-" + f.replace(/\s+/g, '_'));
+                    if(card) card.classList.remove('selected');
+                    const sumDiv = document.getElementById('sum-'+f);
+                    if(sumDiv) sumDiv.innerText = "₹0";
+                    currentBetsData[f] = 0;
+                });
+
+                isResetting = false;
+                console.log("રાઉન્ડ રિસેટ પૂર્ણ થયો.");
+            }, 1500); // રિઝલ્ટ જોવાનો સમય આપીને રિસેટ કરો
+        }
+        
+        if (currentRemainingSeconds > 5) {
+            isResetting = false; // નવા રાઉન્ડ માટે ફ્લેગ રિસેટ
+        }
+    }
+
+    setInterval(syncMobileTimer, 1000);
+
+    function toggleAutoMode() {
+        isAutoMode = !isAutoMode;
+        const btn = document.getElementById('btn-auto-mode');
+        btn.innerText = isAutoMode ? "ઓટો મોડ ચાલુ છે (ON)" : "ઓટો મોડ બંધ છે (OFF)";
+        btn.className = isAutoMode ? "btn-auto-on" : "btn-auto-off";
+    }
+
+    db.ref('isBettingOpen').on('value', (snapshot) => {
+        currentBetStatus = snapshot.val() !== false;
+        const btn = document.getElementById('btn-toggle-bet');
+        btn.innerText = currentBetStatus ? "બેટિંગ ચાલુ છે (OPEN)" : "બેટિંગ બંધ છે (CLOSED)";
+        btn.className = currentBetStatus ? "btn-status-open" : "btn-status-closed";
+    });
+
+    function toggleBetting() { db.ref('isBettingOpen').set(!currentBetStatus); }
+
+    function autoSelectLowestBet() {
+        let lowestAmt = Infinity;
+        let candidates = [];
+        figures.forEach(f => {
+            let amt = currentBetsData[f] || 0;
+            if (amt < lowestAmt) { lowestAmt = amt; }
+        });
+        figures.forEach(f => {
+            if ((currentBetsData[f] || 0) === lowestAmt) { candidates.push(f); }
+        });
+        let autoPick = candidates[Math.floor(Math.random() * candidates.length)];
+        
+        // UI માં હાઈલાઈટ કરો
+        selectedWinner = autoPick;
+        document.getElementById('sel-winner').innerText = autoPick + " (AUTO)";
+        document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+        const cardId = "card-" + autoPick.replace(/\s+/g, '_');
+        document.getElementById(cardId).classList.add('selected');
+
+        sendWinner('normal');
+    }
+
+    const grid = document.getElementById('admin-grid');
+    figures.forEach(f => {
+        let card = document.createElement('div');
+        card.className = 'card';
+        card.id = "card-" + f.replace(/\s+/g, '_');
+        card.innerHTML = `<p style="font-size:9px; font-weight:bold; margin:0;">${f}</p><div class="total-box" id="sum-${f}">₹0</div>`;
+        card.onclick = () => { 
+            selectedWinner = f; 
+            document.getElementById('sel-winner').innerText = f;
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+        };
+        grid.appendChild(card);
+        db.ref(`totalBets/${f}`).on('value', s => {
+            let val = s.val() || 0;
+            currentBetsData[f] = val; 
+            document.getElementById('sum-'+f).innerText = "₹" + val;
+        });
+    });
+
+    function sendWinner(mode) {
+        if(!selectedWinner) return alert("કૃપા કરીને પહેલા એક ફિગર પસંદ કરો!");
+        const uniqueWinnerId = Date.now().toString();
+        const historyData = { name: selectedWinner, type: mode, time: Date.now() };
+
+        db.ref('lastWinner').set({ 
+            name: selectedWinner, 
+            type: mode, 
+            winnerId: uniqueWinnerId,
+            showResult: false 
+        });
+
+        if(winnerTimerRef) clearInterval(winnerTimerRef);
+        winnerTimerRef = setInterval(() => {
+            if (currentRemainingSeconds <= 0) {
+                db.ref('gameHistory').push(historyData);
+                db.ref('lastWinner/showResult').set(true);
+                clearInterval(winnerTimerRef);
+            }
+        }, 500);
+
+        if(!isAutoMode) alert(selectedWinner + " લોક થયો!");
+    }
+
+    function createUser() {
+        let id = document.getElementById('new-uid').value.toUpperCase().trim();
+        let ps = document.getElementById('new-pass').value.trim();
+        let bl = parseInt(document.getElementById('new-bal').value) || 0;
+        if(id && ps) {
+            db.ref('users/'+id).set({password:ps, balance:bl}).then(() => {
+                alert("નવો યુઝર બનાવ્યો!");
+                document.getElementById('new-uid').value = ""; document.getElementById('new-pass').value = ""; document.getElementById('new-bal').value = "";
+            });
+        }
+    }
+
+    db.ref('users').on('value', s => {
+        const table = document.getElementById('user-table'); 
+        table.innerHTML = "";
+        s.forEach(snap => {
+            let u = snap.val(); let id = snap.key;
+            table.innerHTML += `<tr><td><b>${id}</b></td><td>${u.password}</td><td style="color:green; font-weight:bold;">₹${u.balance}</td><td><input type="number" id="amt-${id}" value="100" style="width:60px;"></td><td><button class="btn-add" onclick="changeBal('${id}','add')">+</button> <button class="btn-sub" onclick="changeBal('${id}','sub')">-</button></td></tr>`;
+        });
+    });
+
+    function changeBal(id, type) {
+        let val = parseInt(document.getElementById('amt-'+id).value);
+        if(!val || val <= 0) return;
+        db.ref(`users/${id}/balance`).transaction(cb => { 
+            if(type === 'add') return (cb || 0) + val; 
+            else { let res = (cb || 0) - val; return res < 0 ? 0 : res; } 
+        });
+    }
+</script>https://console.firebase.google.com/
+
+</body>
+</html>
